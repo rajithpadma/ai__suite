@@ -13,10 +13,10 @@ import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional, Tuple
-import bs4
+
 import requests
 import streamlit as st
-from bs4 import BeautifulSoup
+
 from PIL import Image
 
 # ---------------------------------------------------------------------------
