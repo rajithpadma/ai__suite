@@ -1,32 +1,129 @@
 """
 AI Suite - single-file Streamlit app
-Run:  streamlit run app.py
+
+Install dependencies:
+    pip install -r requirements.txt
+
+Or let this file auto-install missing packages on first run.
+
+Run:
+    streamlit run app.py
 """
 
 from __future__ import annotations
 
 import hashlib
+import importlib
 import io
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional, Tuple
 
-import requests
-import streamlit as st
-
-from PIL import Image
-
 # ---------------------------------------------------------------------------
-# Paths (models / outputs created next to this file at runtime)
+# Paths
 # ---------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
+REQUIREMENTS_FILE = BASE_DIR / "requirements.txt"
 MODELS_DIR = BASE_DIR / "models"
 OUTPUTS_DIR = BASE_DIR / "outputs"
 MODELS_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
+
+# import module name  ->  pip package name on PyPI
+REQUIRED_PACKAGES: dict[str, str] = {
+    "streamlit": "streamlit",
+    "requests": "requests",
+    "bs4": "beautifulsoup4",          # pip install beautifulsoup4  ->  import bs4
+    "PIL": "pillow",
+    "numpy": "numpy",
+    "transformers": "transformers",
+    "torch": "torch",
+    "torchvision": "torchvision",
+    "speech_recognition": "SpeechRecognition",
+}
+
+_deps_ready = False
+
+
+def install_requirements() -> None:
+    """Install every package listed in requirements.txt."""
+    if not REQUIREMENTS_FILE.exists():
+        raise FileNotFoundError(f"Missing {REQUIREMENTS_FILE}")
+
+    subprocess.check_call(
+        [sys.executable, "-m", "pip", "install", "-r", str(REQUIREMENTS_FILE)],
+    )
+
+
+def ensure_dependencies() -> None:
+    """Install only packages that are not already importable."""
+    global _deps_ready
+    if _deps_ready:
+        return
+
+    missing: list[str] = []
+    for module_name, pip_name in REQUIRED_PACKAGES.items():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            if pip_name not in missing:
+                missing.append(pip_name)
+
+    if missing:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", *missing, "-q"],
+        )
+        importlib.invalidate_caches()
+
+    still_missing: list[str] = []
+    for module_name, pip_name in REQUIRED_PACKAGES.items():
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            still_missing.append(pip_name)
+
+    if still_missing:
+        raise ImportError(
+            "Could not import: "
+            + ", ".join(still_missing)
+            + ". Run: pip install -r requirements.txt"
+        )
+
+    _deps_ready = True
+
+
+def import_beautifulsoup():
+    """
+    Safe import for BeautifulSoup.
+    Package on PyPI: beautifulsoup4
+    Import in code:  from bs4 import BeautifulSoup
+    """
+    ensure_dependencies()
+    try:
+        from bs4 import BeautifulSoup
+        return BeautifulSoup
+    except ImportError:
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", "beautifulsoup4", "-q"],
+        )
+        importlib.invalidate_caches()
+        from bs4 import BeautifulSoup
+        return BeautifulSoup
+
+
+# Auto-install missing dependencies before the rest of the app loads
+ensure_dependencies()
+
+import requests
+import streamlit as st
+from PIL import Image
+
+BeautifulSoup = import_beautifulsoup()
 
 
 # ---------------------------------------------------------------------------
@@ -482,6 +579,25 @@ with tab3:
             except Exception as e:
                 st.error(str(e))
 
-st.sidebar.markdown("### How to run locally")
-st.sidebar.code('pip install -r requirements.txt\nstreamlit run app.py', language="bash")
-st.sidebar.markdown("**Note:** First summarization run downloads the BART model (~1.6 GB).")
+st.sidebar.markdown("### Install & run")
+st.sidebar.code(
+    "pip install -r requirements.txt\n"
+    "streamlit run app.py",
+    language="bash",
+)
+if st.sidebar.button("Install / repair dependencies now"):
+    try:
+        with st.spinner("Installing packages from requirements.txt..."):
+            install_requirements()
+            ensure_dependencies()
+            importlib.invalidate_caches()
+            globals()["BeautifulSoup"] = import_beautifulsoup()
+        st.sidebar.success("All packages installed.")
+    except Exception as exc:
+        st.sidebar.error(f"Install failed: {exc}")
+
+st.sidebar.markdown(
+    "**Packages:** `beautifulsoup4` provides `bs4` (BeautifulSoup). "
+    "They are listed in `requirements.txt`."
+)
+st.sidebar.markdown("**Note:** First summarization run downloads BART (~1.6 GB).")
