@@ -1,4 +1,4 @@
-```python
+
 """
 AI Suite - Streamlit App
 Features:
